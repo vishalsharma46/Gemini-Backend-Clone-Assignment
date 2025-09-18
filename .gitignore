@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+.env
+.env.*
+!.env.example
+!.env.docker.example
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# Streamlit/user stuff
+.streamlit/
