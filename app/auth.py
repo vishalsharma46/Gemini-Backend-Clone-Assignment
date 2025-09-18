@@ -1,56 +1,52 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from ..database import get_db
-from .. import models
-from ..schemas import SendOtpRequest, VerifyOtpRequest, ChangePasswordRequest, TokenResponse
-from ..auth import issue_otp, verify_otp, create_access_token, hash_password
-from ..utils import api_ok, api_error
-from ..deps import get_current_user
-from pydantic import BaseModel
+import time
+from datetime import datetime, timedelta
+from typing import Optional
 
-class SignupIn(BaseModel):
-    mobile: str 
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from redis import Redis
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+from .config import settings  # <- correct: same package, single dot
 
-@router.post("/signup")
-def signup(body: SignupIn, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter_by(mobile=body.mobile).first()
-    if not user:
-        user = models.User(mobile=body.mobile, tier=models.Tier.BASIC)
-        db.add(user)
-    db.commit()
-    return api_ok({"user_id": user.id}, "signed_up")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
 
-@router.post("/send-otp")
-def send_otp(body: SendOtpRequest):
-    otp = issue_otp(body.mobile)
-    return api_ok({"mobile": body.mobile, "otp": otp}, "OTP issued (mocked)")
 
-@router.post("/verify-otp", response_model=TokenResponse)
-def verify_otp_endpoint(body: VerifyOtpRequest, db: Session = Depends(get_db)):
-    ok = verify_otp(body.mobile, body.otp)
-    if not ok:
-        api_error("Invalid OTP", 400)
+def hash_password(p: str) -> str:
+    return pwd_context.hash(p)
 
-    user = db.query(models.User).filter(models.User.mobile == body.mobile).first()
-    if not user:
-        user = models.User(mobile=body.mobile)  
-        db.add(user)
-        db.commit()
-        db.refresh(user)
 
-    token = create_access_token(subject=user.mobile)
-    return TokenResponse(access_token=token)
+def verify_password(p: str, hashed: str) -> bool:
+    return pwd_context.verify(p, hashed)
 
-@router.post("/forgot-password")
-def forgot_password(body: SendOtpRequest):
-    otp = issue_otp(body.mobile)
-    return api_ok({"mobile": body.mobile, "otp": otp}, "Password reset OTP issued (mocked)")
 
-@router.post("/change-password")
-def change_password(body: ChangePasswordRequest, current=Depends(get_current_user), db: Session = Depends(get_db)):
-    current.password_hash = hash_password(body.new_password)
-    db.add(current)
-    db.commit()
-    return api_ok(message="Password changed")
+def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
+    if expires_minutes is None:
+        expires_minutes = settings.jwt_expire_minutes
+    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    to_encode = {"sub": subject, "exp": expire}
+    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_alg)
+
+
+def decode_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_alg])
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+def issue_otp(mobile: str) -> str:
+    # mock OTP for assignment/demo
+    otp = str(int(time.time()))[-6:]
+    redis_client.setex(f"otp:{mobile}", 300, otp)
+    return otp
+
+
+def verify_otp(mobile: str, otp: str) -> bool:
+    key = f"otp:{mobile}"
+    val = redis_client.get(key)
+    if val and val == otp:
+        redis_client.delete(key)
+        return True
+    return False
