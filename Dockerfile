@@ -11,5 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render injects PORT at runtime; keep a default for local dev
+ENV PORT=8000
+
+# Start the RQ worker in background, then the API in foreground
+CMD sh -c "python worker.py & uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"
