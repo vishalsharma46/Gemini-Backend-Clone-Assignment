@@ -6,7 +6,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+DEFAULT_BASE_URL = os.getenv(
+    "BASE_URL",
+    "https://gemini-backend-clone-assignment-6s5j.onrender.com"
+)
+
 st.set_page_config(page_title="Gemini Backend Frontend", page_icon="✨", layout="wide")
 
 
